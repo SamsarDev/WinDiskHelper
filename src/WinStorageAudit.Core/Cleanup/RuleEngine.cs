@@ -1,3 +1,4 @@
+using WinStorageAudit.Core.Apps;
 using WinStorageAudit.Core.Model;
 using WinStorageAudit.Core.Scanning;
 
@@ -59,7 +60,7 @@ public sealed class RecommendationEngine(IEnumerable<IRule> rules)
     [
         new DevArtifactRule(), new DevCacheRule(), new UserTempRule(), new NamedTempRule(), new OldLogRule(),
         new DownloadsRule(), new LargeStaleFileRule(), new VirtualDiskRule(), new DatabaseRule(),
-        new AppResidueRule(), new DuplicateRule(), new GitBackupRule(), new PersonalBackupRule(),
+        new AppResidueRule(), new DuplicateRule(), new GitBackupRule(), new PersonalBackupRule(), new UnusedAppRule(),
     ];
 
     public EngineResult Run(RuleContext context)

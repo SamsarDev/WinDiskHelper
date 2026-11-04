@@ -69,7 +69,8 @@ internal static class NativeMethods
         public uint FileIndexLow;
     }
 
-    [StructLayout(LayoutKind.Sequential, Pack = 1)]
+    // En x64 el encabezado usa empaquetado de 8 bytes (cbSize=24).
+    [StructLayout(LayoutKind.Sequential)]
     public struct ShQueryRbInfo
     {
         public int Size;

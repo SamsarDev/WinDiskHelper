@@ -155,6 +155,11 @@ public sealed record InstalledApp
     public required string Source { get; init; }
     public string? PackageFamilyName { get; init; }
     public bool IsSystemLike { get; init; }
+
+    /// <summary>Ejecutables hallados en la instalación; permite cruzar fuentes que solo registran el nombre.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public IReadOnlyList<string> ExecutableNames { get; set; } = [];
+
     public UsageClass Usage { get; set; } = UsageClass.Unknown;
     public Confidence UsageConfidence { get; set; } = Confidence.Unknown;
     public DateTime? LastRunUtc { get; set; }
