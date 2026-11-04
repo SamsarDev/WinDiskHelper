@@ -59,7 +59,7 @@ public sealed class RecommendationEngine(IEnumerable<IRule> rules)
     [
         new DevArtifactRule(), new DevCacheRule(), new UserTempRule(), new NamedTempRule(), new OldLogRule(),
         new DownloadsRule(), new LargeStaleFileRule(), new VirtualDiskRule(), new DatabaseRule(),
-        new AppResidueRule(), new DuplicateRule(),
+        new AppResidueRule(), new DuplicateRule(), new GitBackupRule(), new PersonalBackupRule(),
     ];
 
     public EngineResult Run(RuleContext context)
