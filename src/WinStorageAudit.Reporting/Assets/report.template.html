@@ -1,0 +1,435 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+<title>WinStorageAudit: reporte</title>
+<style>
+:root {
+  --bg: #f7f6f3; --surface: #ffffff; --ink: #1f2328; --ink-2: #4d5560; --ink-3: #6b7380; --line: #dfdcd5; --accent: #1f5f99; --bar: #2f73b5; --track: #ecebe6;
+  --low: #1d6b3f; --low-bg: #e3f2e8; --mod: #7a5600; --mod-bg: #f8eecd; --high: #a4400d; --high-bg: #fbe5d8; --crit: #a11d2c; --crit-bg: #fbe0e3; --info: #3f4c5c; --info-bg: #e8ebef;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #15181c; --surface: #1d2126; --ink: #e8eaed; --ink-2: #b7bdc6; --ink-3: #939aa5; --line: #30363d; --accent: #7db6ec; --bar: #6aa7e2; --track: #2a2f36;
+    --low: #7fd6a0; --low-bg: #16301f; --mod: #e6c260; --mod-bg: #332a0e; --high: #f0a070; --high-bg: #3a2113; --crit: #f28b96; --crit-bg: #3b1a1f; --info: #b7c3d2; --info-bg: #282e36;
+  }
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 64px; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 "Segoe UI", system-ui, -apple-system, sans-serif; }
+header.top { padding: 28px 24px 16px; max-width: 1240px; margin: 0 auto; }
+h1 { margin: 0 0 4px; font-size: 26px; font-weight: 650; letter-spacing: -.01em; }
+h2 { font-size: 20px; margin: 0 0 4px; font-weight: 650; }
+h3 { font-size: 15px; margin: 24px 0 8px; font-weight: 650; }
+p { margin: 0 0 8px; }
+.muted { color: var(--ink-2); }
+.small { font-size: 13px; }
+nav { position: sticky; top: 0; z-index: 5; background: var(--bg); border-bottom: 1px solid var(--line); }
+nav div { max-width: 1240px; margin: 0 auto; padding: 0 16px; display: flex; gap: 2px; overflow-x: auto; }
+nav a { padding: 11px 10px; color: var(--ink-2); text-decoration: none; white-space: nowrap; font-size: 14px; border-bottom: 2px solid transparent; }
+nav a:hover, nav a:focus-visible { color: var(--ink); border-bottom-color: var(--accent); }
+main { max-width: 1240px; margin: 0 auto; padding: 0 24px 64px; }
+section { margin-top: 36px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-top: 12px; }
+.tile { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; }
+.tile b { display: block; font-size: 24px; font-weight: 650; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.tile span { font-size: 13px; color: var(--ink-2); display: block; margin-top: 4px; }
+.banner { background: var(--info-bg); color: var(--info); padding: 10px 14px; border-radius: 8px; margin-top: 12px; font-size: 14px; }
+.banner.warn { background: var(--mod-bg); color: var(--mod); }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; margin-top: 12px; }
+.bars { display: grid; gap: 7px; }
+.bar-row { display: grid; grid-template-columns: minmax(120px, 2fr) 3fr minmax(84px, auto); gap: 10px; align-items: center; font-size: 14px; padding: 1px 0; }
+.bar-row:hover { background: var(--track); }
+.bar-row .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar-row .value { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-2); }
+.track { height: 10px; border-radius: 0 4px 4px 0; }
+.fill { height: 100%; background: var(--bar); border-radius: 0 4px 4px 0; min-width: 2px; }
+.tablewrap { overflow-x: auto; margin-top: 8px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th { text-align: left; font-weight: 600; font-size: 13px; color: var(--ink-2); border-bottom: 1px solid var(--line); padding: 8px 10px; white-space: nowrap; }
+th.sortable { cursor: pointer; user-select: none; }
+th.sortable:hover { color: var(--ink); }
+th[aria-sort="ascending"]::after { content: " ▲"; font-size: 10px; }
+th[aria-sort="descending"]::after { content: " ▼"; font-size: 10px; }
+td { padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+td.path { word-break: break-all; min-width: 240px; font-size: 13px; }
+tr.expandable { cursor: pointer; }
+tr.expandable:hover td { background: var(--track); }
+tr.detail td { background: var(--bg); font-size: 14px; padding: 12px 16px; }
+.explain { display: grid; grid-template-columns: 170px 1fr; gap: 4px 12px; margin: 0; }
+.explain dt { font-weight: 600; color: var(--ink-2); }
+.explain dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.explain ul { margin: 0; padding-left: 18px; }
+.chip { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; font-weight: 600; white-space: nowrap; background: var(--info-bg); color: var(--info); }
+.chip.r-low { background: var(--low-bg); color: var(--low); }
+.chip.r-mod { background: var(--mod-bg); color: var(--mod); }
+.chip.r-high { background: var(--high-bg); color: var(--high); }
+.chip.r-crit { background: var(--crit-bg); color: var(--crit); }
+.filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
+select, input[type=search] { font: inherit; font-size: 14px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; }
+input[type=search] { min-width: 220px; }
+button { font: inherit; font-size: 13px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+button:disabled { opacity: .45; cursor: default; }
+.pager { display: flex; gap: 8px; align-items: center; padding: 8px 10px; font-size: 13px; color: var(--ink-2); border-top: 1px solid var(--line); }
+pre { margin: 6px 0; padding: 8px 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; overflow-x: auto; font: 13px/1.5 Consolas, ui-monospace, monospace; white-space: pre-wrap; word-break: break-word; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 16px; }
+.advanced { border-color: var(--crit); }
+a { color: var(--accent); }
+@media (max-width: 640px) {
+  header.top, main { padding-left: 16px; padding-right: 16px; }
+  .grid2 { grid-template-columns: 1fr; }
+  .explain { grid-template-columns: 1fr; }
+  .bar-row { grid-template-columns: 1fr auto; }
+  .bar-row .track { grid-column: 1 / -1; grid-row: 2; }
+}
+@media print { nav { display: none; } .pager, .filters { display: none; } }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>Auditoría de almacenamiento</h1>
+  <p class="muted" id="subtitle"></p>
+</header>
+<nav aria-label="Secciones"><div>
+  <a href="#resumen">Resumen</a><a href="#distribucion">Distribución</a><a href="#limpieza">Limpieza</a><a href="#respaldo">Respaldo</a><a href="#aplicaciones">Aplicaciones</a><a href="#mantenimiento">Mantenimiento</a><a href="#limitaciones">Limitaciones</a>
+</div></nav>
+<main id="app"><noscript><p>Este reporte necesita JavaScript local para mostrar los datos. No se conecta a Internet. También puede usar el reporte JSON.</p></noscript></main>
+<script type="application/json" id="report-data">__REPORT_DATA__</script>
+<script>
+"use strict";
+const D = JSON.parse(document.getElementById("report-data").textContent);
+
+// Todo el contenido dinámico se inserta como nodos de texto: una ruta maliciosa no puede inyectar HTML.
+function h(tag, props, ...children) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(props || {})) {
+    if (v === undefined || v === null || v === false) continue;
+    if (k === "class") el.className = v;
+    else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else el.setAttribute(k, v === true ? "" : v);
+  }
+  for (const c of children.flat(Infinity)) {
+    if (c === undefined || c === null || c === false) continue;
+    el.append(c instanceof Node ? c : document.createTextNode(String(c)));
+  }
+  return el;
+}
+
+function bytes(n) {
+  if (n === undefined || n === null) return "—";
+  const u = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"];
+  let v = Math.abs(n), i = 0;
+  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+  return (n < 0 ? "-" : "") + v.toLocaleString("es", { maximumFractionDigits: i === 0 ? 0 : 2 }) + " " + u[i];
+}
+const num = n => (n ?? 0).toLocaleString("es");
+const pct = n => (n ?? 0).toLocaleString("es", { maximumFractionDigits: 1 }) + " %";
+const date = s => s ? new Date(s).toLocaleDateString("es", { year: "numeric", month: "short", day: "numeric" }) : "—";
+const dateTime = s => s ? new Date(s).toLocaleString("es") : "—";
+const riskClass = { "Bajo": "r-low", "Moderado": "r-mod", "Alto": "r-high", "Crítico": "r-crit" };
+const chip = t => h("span", { class: "chip " + (riskClass[t] || "") }, t);
+
+function tile(value, label) { return h("div", { class: "tile" }, h("b", {}, value), h("span", {}, label)); }
+
+function bars(rows, labelOf, valueOf) {
+  const max = Math.max(1, ...rows.map(valueOf));
+  return h("div", { class: "bars" }, rows.map(r => {
+    const label = labelOf(r), value = valueOf(r);
+    return h("div", { class: "bar-row", title: label + ": " + bytes(value) },
+      h("div", { class: "label" }, label),
+      h("div", { class: "track" }, h("div", { class: "fill", style: "width:" + (value / max * 100).toFixed(2) + "%" })),
+      h("div", { class: "value" }, bytes(value)));
+  }));
+}
+
+// Tabla con orden, filtros y paginación: solo el DOM de una página está vivo, para no bloquear el navegador.
+function dataTable(opts) {
+  const { columns, rows, filters = [], pageSize = 50, detail, searchable = true } = opts;
+  let sortKey = opts.sortKey, sortDir = opts.sortDir || -1, page = 0, query = "";
+  const active = {};
+  const tbody = h("tbody");
+  const info = h("span");
+  const prev = h("button", { onclick: () => { page--; render(); } }, "Anterior");
+  const next = h("button", { onclick: () => { page++; render(); } }, "Siguiente");
+  const heads = columns.map(c => {
+    const th = h("th", { class: (c.num ? "num " : "") + (c.sort ? "sortable" : ""), scope: "col" }, c.title);
+    if (c.sort) th.addEventListener("click", () => {
+      if (sortKey === c.sort) sortDir = -sortDir; else { sortKey = c.sort; sortDir = c.num ? -1 : 1; }
+      page = 0; render();
+    });
+    c.th = th;
+    return th;
+  });
+  function filtered() {
+    let out = rows.filter(r => filters.every(f => !active[f.key] || r[f.key] === active[f.key]));
+    if (query) {
+      const q = query.toLowerCase();
+      out = out.filter(r => columns.some(c => { const v = r[c.search || c.sort]; return typeof v === "string" && v.toLowerCase().includes(q); }));
+    }
+    if (sortKey) out = [...out].sort((a, b) => {
+      const x = a[sortKey], y = b[sortKey];
+      if (x === y) return 0;
+      if (x === undefined || x === null) return 1;
+      if (y === undefined || y === null) return -1;
+      return (x > y ? 1 : -1) * sortDir;
+    });
+    return out;
+  }
+  function render() {
+    const data = filtered();
+    const pages = Math.max(1, Math.ceil(data.length / pageSize));
+    page = Math.min(Math.max(0, page), pages - 1);
+    tbody.replaceChildren();
+    for (const r of data.slice(page * pageSize, (page + 1) * pageSize)) {
+      const tr = h("tr", { class: detail ? "expandable" : "", tabindex: detail ? "0" : null },
+        columns.map(c => h("td", { class: (c.num ? "num " : "") + (c.path ? "path" : "") }, c.render ? c.render(r) : r[c.sort])));
+      tbody.append(tr);
+      if (detail) {
+        let open = null;
+        const toggle = () => {
+          if (open) { open.remove(); open = null; return; }
+          open = h("tr", { class: "detail" }, h("td", { colspan: columns.length }, detail(r)));
+          tr.after(open);
+        };
+        tr.addEventListener("click", toggle);
+        tr.addEventListener("keydown", e => { if (e.key === "Enter") toggle(); });
+      }
+    }
+    columns.forEach(c => { if (c.sort) { if (sortKey === c.sort) c.th.setAttribute("aria-sort", sortDir > 0 ? "ascending" : "descending"); else c.th.removeAttribute("aria-sort"); } });
+    info.textContent = num(data.length) + " de " + num(rows.length) + " · página " + (page + 1) + " de " + pages;
+    prev.disabled = page === 0;
+    next.disabled = page >= pages - 1;
+  }
+  const filterBar = (filters.length || searchable) ? h("div", { class: "filters" },
+    searchable && h("input", { type: "search", placeholder: "Buscar…", "aria-label": "Buscar en la tabla", oninput: e => { query = e.target.value; page = 0; render(); } }),
+    filters.map(f => {
+      const values = [...new Set(rows.map(r => r[f.key]).filter(v => v !== undefined && v !== null))].sort((a, b) => f.order ? f.order.indexOf(a) - f.order.indexOf(b) : String(a).localeCompare(b));
+      return h("select", { "aria-label": f.title, onchange: e => { active[f.key] = e.target.value; page = 0; render(); } },
+        h("option", { value: "" }, f.title + ": todos"), values.map(v => h("option", { value: v }, v)));
+    })) : null;
+  const wrap = h("div", {}, filterBar, h("div", { class: "tablewrap" }, h("table", {}, h("thead", {}, h("tr", {}, heads)), tbody), h("div", { class: "pager" }, prev, next, info)));
+  render();
+  return wrap;
+}
+
+function explain(f) {
+  const rows = [
+    ["Qué se encontró", f.description],
+    ["Por qué importa", f.relevance],
+    ["Evidencia", h("ul", {}, (f.evidence || []).map(e => h("li", {}, e)))],
+    ["Qué puede hacer", f.action],
+    ["Qué podría perder", f.loss],
+    ["Espacio estimado", bytes(f.reclaimable) + (f.counted !== f.reclaimable ? " (" + bytes(f.counted) + " en totales, sin superposiciones)" : "")],
+    ["Reversibilidad", f.reversibility],
+    ["Regla", f.rule + " · hallazgo " + f.id],
+  ];
+  if (f.kind) rows.splice(2, 0, ["Tipo de recurso", f.kind]);
+  if (f.related?.length) rows.push(["Rutas relacionadas", h("ul", {}, f.related.map(p => h("li", {}, p)))]);
+  if (f.requiresBackup) rows.push(["Respaldo", "Respalde antes de modificar."]);
+  if (f.requiresElevation) rows.push(["Permisos", "Requiere privilegios de administrador."]);
+  return h("dl", { class: "explain" }, rows.flatMap(([k, v]) => [h("dt", {}, k), h("dd", {}, v)]));
+}
+
+const riskOrder = ["Bajo", "Moderado", "Alto", "Crítico"];
+const findingColumns = [
+  { title: "Ruta o recurso", sort: "path", path: true },
+  { title: "Área", sort: "area" },
+  { title: "Clasificación", sort: "classification" },
+  { title: "Riesgo", sort: "riskRank", render: r => chip(r.risk) },
+  { title: "Confianza", sort: "confidenceRank", render: r => r.confidence },
+  { title: "Recuperable", sort: "reclaimable", num: true, render: r => r.reclaimable > 0 ? bytes(r.reclaimable) : "—" },
+  { title: "Ocupa", sort: "size", num: true, render: r => r.size > 0 ? bytes(r.size) : "—" },
+];
+
+function summary() {
+  const v = D.volumes;
+  return h("section", { id: "resumen" },
+    h("h2", {}, "Resumen ejecutivo"),
+    D.cancelled && h("div", { class: "banner warn" }, "El análisis se canceló: los resultados son parciales."),
+    D.truncated.length > 0 && h("div", { class: "banner" }, "Este reporte limita algunas tablas para no bloquear el navegador: " + D.truncated.join("; ") + ". El reporte JSON también está acotado por los límites del análisis."),
+    h("div", { class: "tiles" },
+      tile(bytes(D.reclaim.occupied), "Espacio físico ocupado por lo analizado"),
+      tile(bytes(D.reclaim.candidate), "Potencialmente recuperable: candidatos de limpieza"),
+      tile(bytes(D.reclaim.review), "Podría recuperarse tras revisión manual"),
+      tile(bytes(0), "Efectivamente liberado: esta herramienta no borra nada"),
+      tile(num(D.counts.backupItems), "Elementos que requieren respaldo"),
+      tile(num(D.storage.files), "Archivos en " + num(D.storage.directories) + " carpetas")),
+    h("div", { class: "card" },
+      h("h3", { style: "margin-top:0" }, "Alcance"),
+      h("p", {}, "Rutas: ", D.roots.join("; ")),
+      h("p", {}, "Modo: ", D.mode, " · Inicio: ", dateTime(D.started), " · Duración: ", D.duration),
+      D.exclusions.length > 0 && h("p", {}, "Exclusiones: ", D.exclusions.join("; ")),
+      v.map(x => h("p", {}, x.root, " ", x.label ? "(" + x.label + ") " : "", x.fileSystem || "", ": capacidad ", bytes(x.total), ", disponible ", bytes(x.free))),
+      D.storage.logical !== D.reclaim.occupied && h("p", { class: "muted small" }, "Tamaño lógico: ", bytes(D.storage.logical), ". Solo en la nube, sin leer: ", bytes(D.storage.onlineOnly), ". Rutas repetidas de enlaces duros: ", bytes(D.storage.repeatedLinks), ".")),
+    D.storage.topFolders.length > 0 && h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, "Principales consumidores"),
+      bars(D.storage.concentrations.length ? D.storage.concentrations.slice(0, 8) : D.storage.topFolders.slice(0, 8), r => r.path, r => r.physical)),
+    h("div", { class: "banner" }, D.privacyNote));
+}
+
+function storageTableColumns() {
+  return [
+    { title: "Ruta", sort: "path", path: true },
+    { title: "Físico", sort: "physical", num: true, render: r => bytes(r.physical) },
+    { title: "Lógico", sort: "logical", num: true, render: r => bytes(r.logical) },
+    { title: "% analizado", sort: "percent", num: true, render: r => pct(r.percent) },
+    { title: "Contenido", sort: "contentType" },
+    { title: "Riesgo", sort: "riskRank", render: r => chip(r.risk) },
+    { title: "Recuperable", sort: "reclaimable", num: true, render: r => r.reclaimable > 0 ? bytes(r.reclaimable) : "—" },
+    { title: "Evidencia", sort: "evidenceText", render: r => r.evidenceText },
+  ];
+}
+
+function distribution() {
+  const dev = D.storage.categories.filter(c => c.key === "Cachés de desarrollo" || c.key === "Repositorios de código");
+  return h("section", { id: "distribucion" },
+    h("h2", {}, "Distribución de almacenamiento"),
+    h("div", { class: "grid2" },
+      h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, "Por categoría"), bars(D.storage.categories, r => r.key, r => r.physical)),
+      h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, "Por extensión"), bars(D.storage.extensions.slice(0, 15), r => r.key, r => r.physical))),
+    dev.length > 0 && h("p", { class: "muted small", style: "margin-top:8px" }, "Recursos de desarrollo: ", dev.map(d => d.key + " " + bytes(d.physical)).join(" · ")),
+    h("h3", {}, "Carpetas con mayor consumo"),
+    h("p", { class: "muted small" }, "Las carpetas pueden estar anidadas: sus tamaños no se pueden sumar."),
+    dataTable({ columns: storageTableColumns(), rows: D.storage.topFolders, sortKey: "physical", filters: [{ key: "risk", title: "Riesgo", order: riskOrder }] }),
+    h("h3", {}, "Archivos más grandes"),
+    dataTable({ columns: storageTableColumns(), rows: D.storage.topFiles, sortKey: "physical", filters: [{ key: "risk", title: "Riesgo", order: riskOrder }] }),
+    h("h3", {}, "Extensiones"),
+    dataTable({
+      columns: [
+        { title: "Extensión", sort: "key" },
+        { title: "Físico", sort: "physical", num: true, render: r => bytes(r.physical) },
+        { title: "Lógico", sort: "logical", num: true, render: r => bytes(r.logical) },
+        { title: "Archivos", sort: "files", num: true, render: r => num(r.files) },
+      ], rows: D.storage.extensions, sortKey: "physical", pageSize: 20,
+    }));
+}
+
+function cleanup() {
+  const rows = D.findings.filter(f => !["Respaldar prioritariamente"].includes(f.classification));
+  return h("section", { id: "limpieza" },
+    h("h2", {}, "Limpieza"),
+    h("p", { class: "muted" }, "Pulse una fila para ver la explicación completa. Ninguna acción se ejecuta desde este reporte."),
+    dataTable({
+      columns: findingColumns, rows, sortKey: "reclaimable", detail: explain,
+      filters: [
+        { key: "classification", title: "Clasificación" }, { key: "risk", title: "Riesgo", order: riskOrder },
+        { key: "confidence", title: "Confianza", order: ["Alta", "Media", "Baja", "Desconocida"] }, { key: "area", title: "Área" },
+      ],
+    }),
+    D.duplicates.evaluated
+      ? h("p", { class: "muted small", style: "margin-top:8px" }, "Duplicados: ", num(D.duplicates.considered), " archivos considerados, ", num(D.duplicates.hashed), " con hash completo, ", bytes(D.duplicates.read), " leídos, ", num(D.duplicates.groups), " grupos confirmados, ", num(D.duplicates.linksIgnored), " grupos de enlaces duros ignorados.")
+      : h("p", { class: "muted small", style: "margin-top:8px" }, "Los duplicados no se evaluaron en este análisis."));
+}
+
+function backup() {
+  const statusColumns = [
+    { title: "Repositorio", sort: "path", path: true },
+    { title: "Tamaño", sort: "size", num: true, render: r => bytes(r.size) },
+    { title: "Remotos", sort: "remotes", render: r => r.remotes || "Ninguno" },
+    { title: "Rama", sort: "branch", render: r => r.branch || "—" },
+    { title: "Estado", sort: "statesText", render: r => h("ul", { style: "margin:0;padding-left:16px" }, r.states.map(s => h("li", {}, s))) },
+  ];
+  return h("section", { id: "respaldo" },
+    h("h2", {}, "Respaldo"),
+    h("h3", {}, "Prioridades"),
+    D.backup.priorities.length === 0 ? h("p", { class: "muted" }, "No se detectaron prioridades en lo analizado.") :
+    dataTable({
+      columns: [
+        { title: "#", sort: "rank", num: true },
+        { title: "Qué respaldar", sort: "target", path: true },
+        { title: "Por qué", sort: "reason" },
+        { title: "Tamaño", sort: "size", num: true, render: r => bytes(r.size) },
+      ], rows: D.backup.priorities, sortKey: "rank", sortDir: 1, pageSize: 20, searchable: false,
+    }),
+    h("h3", {}, "Repositorios Git"),
+    !D.gitAvailable && h("p", { class: "muted" }, "Git no estaba disponible o no se evaluó en este análisis."),
+    D.repositories.length > 0 && dataTable({ columns: statusColumns, rows: D.repositories, pageSize: 25 }),
+    h("h3", {}, "Archivos personales"),
+    h("p", { class: "muted small" }, "Destinos configurados: ", D.backup.destinations.length ? D.backup.destinations.join("; ") : "ninguno", ". Estados: ",
+      D.backup.states.map(s => s.key + " " + num(s.value)).join(" · ") || "sin datos"),
+    D.backup.groups.length > 0 && h("div", { class: "card" }, bars(D.backup.groups, r => r.kind + " (" + num(r.files) + ")", r => r.bytes)),
+    D.backup.files.length > 0 && dataTable({
+      columns: [
+        { title: "Archivo", sort: "path", path: true },
+        { title: "Tipo", sort: "kind" },
+        { title: "Tamaño", sort: "bytes", num: true, render: r => bytes(r.bytes) },
+        { title: "Modificado", sort: "modified", render: r => date(r.modified) },
+        { title: "Respaldo", sort: "state", render: r => h("span", { title: r.detail || "" }, r.state) },
+      ], rows: D.backup.files, sortKey: "bytes", filters: [{ key: "kind", title: "Tipo" }, { key: "state", title: "Respaldo" }], pageSize: 25,
+    }));
+}
+
+function apps() {
+  return h("section", { id: "aplicaciones" },
+    h("h2", {}, "Aplicaciones"),
+    !D.apps.evaluated ? h("p", { class: "muted" }, "No se evaluaron en este análisis. Ejecute «scan --deep» o «analyze apps».") : [
+      h("div", { class: "banner" }, "Windows no conserva un historial completo de ejecución. La ausencia de evidencia no significa que una aplicación no se use."),
+      h("h3", {}, "Fuentes consultadas"),
+      h("ul", {}, D.apps.sources.map(s => h("li", {}, s.name, ": ", s.available ? num(s.records) + " registros" : "no disponible", " (", s.detail, ")"))),
+      D.apps.errors.map(e => h("p", { class: "muted small" }, e)),
+      dataTable({
+        columns: [
+          { title: "Nombre", sort: "name" },
+          { title: "Editor", sort: "publisher", render: r => r.publisher || "—" },
+          { title: "Versión", sort: "version", render: r => r.version || "—" },
+          { title: "Tamaño", sort: "size", num: true, render: r => r.size != null ? bytes(r.size) : "—" },
+          { title: "Instalación", sort: "installed", render: r => date(r.installed) },
+          { title: "Última evidencia", sort: "lastRun", render: r => date(r.lastRun) },
+          { title: "Uso", sort: "usage" },
+          { title: "Confianza", sort: "confidence" },
+        ],
+        rows: D.apps.list, sortKey: "size", pageSize: 25, filters: [{ key: "usage", title: "Uso" }],
+        detail: r => h("dl", { class: "explain" }, [
+          h("dt", {}, "Ubicación"), h("dd", {}, r.location || "No disponible"),
+          h("dt", {}, "Fuente"), h("dd", {}, r.source),
+          h("dt", {}, "Evidencia"), h("dd", {}, r.evidence.length ? h("ul", {}, r.evidence.map(e => h("li", {}, e))) : "Ninguna"),
+          h("dt", {}, "Sugerencia"), h("dd", {}, r.suggestion || "Ninguna"),
+        ]),
+      }),
+    ]);
+}
+
+function maintenance() {
+  const item = m => h("div", { class: "card" + (m.advanced ? " advanced" : "") },
+    h("h3", { style: "margin-top:0" }, m.title, " ", h("span", { class: "chip " + (m.advanced ? "r-crit" : "") }, m.severity)),
+    h("p", {}, m.description),
+    h("dl", { class: "explain" }, [
+      h("dt", {}, "Relevancia"), h("dd", {}, m.relevance),
+      h("dt", {}, "Estado detectado"), h("dd", {}, m.state),
+      m.recoverable != null && [h("dt", {}, "Potencial estimado"), h("dd", {}, bytes(m.recoverable))],
+      m.command && [h("dt", {}, "Comando"), h("dd", {}, h("pre", {}, m.command))],
+      m.settings && [h("dt", {}, "Configuración"), h("dd", {}, m.settings)],
+      h("dt", {}, "Permisos"), h("dd", {}, m.permissions),
+      h("dt", {}, "Consecuencias"), h("dd", {}, m.consequences),
+      h("dt", {}, "Reversibilidad"), h("dd", {}, m.reversibility),
+      h("dt", {}, "Referencia"), h("dd", {}, m.reference),
+    ]));
+  const normal = D.maintenance.filter(m => !m.advanced), advanced = D.maintenance.filter(m => m.advanced);
+  return h("section", { id: "mantenimiento" },
+    h("h2", {}, "Mantenimiento de Windows"),
+    h("p", { class: "muted" }, "Ningún comando se ejecutó. Léalos y decida; algunos requieren administrador."),
+    D.maintenance.length === 0 && h("p", { class: "muted" }, "No se evaluó en este análisis."),
+    normal.map(item),
+    advanced.length > 0 && [h("h3", {}, "Acciones avanzadas de riesgo elevado: no son limpieza rutinaria"), advanced.map(item)]);
+}
+
+function limits() {
+  return h("section", { id: "limitaciones" },
+    h("h2", {}, "Limitaciones"),
+    h("ul", {}, D.coverage.notes.map(n => h("li", {}, n))),
+    D.coverage.counts.length > 0 && [h("h3", {}, "Incidencias"), h("ul", {}, D.coverage.counts.map(c => h("li", {}, c.key, ": ", num(c.value))))],
+    D.coverage.samples.length > 0 && [h("h3", {}, "Ejemplos"), dataTable({
+      columns: [
+        { title: "Tipo", sort: "kind" }, { title: "Ruta", sort: "path", path: true }, { title: "Detalle", sort: "detail" },
+      ], rows: D.coverage.samples, pageSize: 25, filters: [{ key: "kind", title: "Tipo" }],
+    })]);
+}
+
+document.getElementById("subtitle").textContent = D.roots.join("; ") + " · " + dateTime(D.finished) + " · WinStorageAudit " + D.version;
+document.getElementById("app").append(summary(), distribution(), cleanup(), backup(), apps(), maintenance(), limits());
+</script>
+</body>
+</html>

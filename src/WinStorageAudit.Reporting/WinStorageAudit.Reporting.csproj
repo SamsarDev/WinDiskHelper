@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\WinStorageAudit.Core\WinStorageAudit.Core.csproj" />
@@ -9,5 +9,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Assets\report.template.html" LogicalName="WinStorageAudit.Reporting.Assets.report.template.html" />
+  </ItemGroup>
 
 </Project>
