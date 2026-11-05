@@ -61,6 +61,14 @@ public sealed class DevArtifactRule : IRule
                 confidence = Confidence.Medium;
             }
 
+            if (kind.Id is "node-dist" or "node-framework-cache" && r.RepoRoot == null && !r.ParentMarkers.HasFlag(ProjectMarkers.JsLockFile))
+            {
+                evidence.Add("Sin repositorio ni archivo de bloqueo: podría ser un paquete ya compilado cuyo código fuente no existe aquí.");
+                recommendation = RecommendationClass.ManualReview;
+                risk = RiskLevel.Moderate;
+                confidence = Confidence.Low;
+            }
+
             if (kind.Id == "python-venv" && !r.ParentMarkers.HasFlag(ProjectMarkers.Python))
                 evidence.Add("No se encontró requirements.txt ni pyproject.toml junto al entorno: puede ser difícil recrearlo.");
 
@@ -113,7 +121,7 @@ public sealed class DevArtifactRule : IRule
             {
                 RuleId = Id + ":" + id + ":aggregate",
                 Category = FindingArea.Development,
-                PathOrResource = $"({v.Count} carpetas pequeñas de {v.Kind.Tool}: {id})",
+                PathOrResource = $"({v.Count} carpeta(s) pequeña(s) de {v.Kind.Tool}: {id})",
                 IsAggregate = true,
                 RelatedPaths = v.Samples,
                 Description = $"{v.Count} carpetas de {v.Kind.Kind.Es().ToLowerInvariant()}, cada una menor que el umbral de reporte individual.",
@@ -318,6 +326,8 @@ public sealed partial class DownloadsRule : IRule
 
     public IEnumerable<Finding> Evaluate(RuleContext c)
     {
+        // Un duplicado confirmado por hash ya tiene su propio hallazgo, más sólido que un parecido de nombre.
+        var confirmed = new HashSet<string>(c.Duplicates.Groups.SelectMany(g => g.Paths), StringComparer.OrdinalIgnoreCase);
         var bySize = c.Scan.DownloadFiles.ToLookup(f => f.LogicalBytes);
         var names = new HashSet<string>(c.Scan.DownloadFiles.Select(f => f.Path), StringComparer.OrdinalIgnoreCase);
         long smallBytes = 0, smallReclaim = 0;
@@ -326,7 +336,7 @@ public sealed partial class DownloadsRule : IRule
 
         foreach (var f in c.Scan.DownloadFiles.OrderByDescending(f => f.PhysicalBytes))
         {
-            if (f.IsOnlineOnly) continue;
+            if (f.IsOnlineOnly || confirmed.Contains(f.Path)) continue;
             var age = c.AgeDays(f.LastWriteUtc);
             var ext = Path.GetExtension(f.Path);
             var name = Path.GetFileName(f.Path);

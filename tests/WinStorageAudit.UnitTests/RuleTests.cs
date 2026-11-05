@@ -64,6 +64,34 @@ public class ClassificationTests
     }
 
     [Theory]
+    [InlineData(@"Users\demo\.vscode\extensions\pub.ext")]
+    [InlineData(@"Users\demo\.cursor\tool")]
+    [InlineData(@"Users\demo\Dev\orphan\node_modules\pkg")]
+    [InlineData(@"Users\demo\Dev\venv\Lib\site-packages\pkg")]
+    public void Dist_of_installed_tool_is_never_an_artifact(string package)
+    {
+        // Falso positivo hallado en un equipo real: el «dist» de una extensión es su código en uso.
+        Assert.Empty(Dev((package, new FF("package.json")), (package + @"\dist", new FF("main.js", 20 * MiB))));
+    }
+
+    [Fact]
+    public void Dist_without_repo_or_lockfile_needs_review_with_low_confidence()
+    {
+        var f = new DevArtifactRule().Evaluate(Scan(Tree((@"p\dist", new FF("a.js", 30 * MiB, DaysAgo(100))), (@"p", new FF("package.json", 1, DaysAgo(100))))).Context).Single();
+        Assert.Equal(RecommendationClass.ManualReview, f.Recommendation);
+        Assert.Equal(Confidence.Low, f.Confidence);
+    }
+
+    [Fact]
+    public void Concentrations_cover_every_significant_branch()
+    {
+        var s = Scan(Tree((@"a\big", new FF("x", 500 * MiB)), (@"b\other", new FF("y", 300 * MiB)), (@"c", new FF("z", 1)))).Context.Storage;
+        Assert.Contains(s.Concentrations, c => c.Path.EndsWith(@"a\big"));
+        Assert.Contains(s.Concentrations, c => c.Path.EndsWith(@"b\other"));
+        Assert.DoesNotContain(s.Concentrations, c => c.Path == Root);
+    }
+
+    [Theory]
     [InlineData(@"Users\demo\AppData\Local\Temp", "x.bin", StorageCategory.TemporaryFiles)]
     [InlineData(@"Windows\System32", "x.dll", StorageCategory.OperatingSystem)]
     [InlineData(@"Program Files\App", "x.dll", StorageCategory.Applications)]
@@ -397,6 +425,59 @@ public class RecommendationEngineTests
         var r = ReclaimCalculator.Apply([Finding(@"C:\cache", 1000), dup]);
         Assert.Equal(1000, r[0].CountedReclaimableBytes);
         Assert.Equal(0, r[1].CountedReclaimableBytes);
+    }
+
+    [Fact]
+    public void Candidate_duplicate_counts_and_removable_copy_is_not_counted_again_in_review()
+    {
+        var dup = Finding(@"C:\d\a.zip", 100, RecommendationClass.CleanupCandidate, FindingArea.Duplicates) with { RelatedPaths = [@"C:\d\a.zip", @"C:\d\a-copy.zip"] };
+        var review = Finding(@"C:\d\a-copy.zip", 100, RecommendationClass.ManualReview, FindingArea.Downloads);
+        var r = ReclaimCalculator.Apply([dup, review]);
+        Assert.Equal(100, r[0].CountedReclaimableBytes);
+        Assert.Equal(0, r[1].CountedReclaimableBytes);
+    }
+
+    [Fact]
+    public void Confirmed_duplicate_replaces_name_based_copy_finding()
+    {
+        var d = @"Users\demo\Downloads";
+        var (ctx, _) = Scan(Tree((d, new FF("a.zip", 5 * MiB, DaysAgo(1))), (d, new FF("a (1).zip", 5 * MiB, DaysAgo(1)))));
+        var dup = new DuplicateReport { Evaluated = true, Groups = [new DuplicateGroup { FileSizeBytes = 5 * MiB, Paths = [$@"{Root}\{d}\a.zip", $@"{Root}\{d}\a (1).zip"] }] };
+        Assert.Empty(new DownloadsRule().Evaluate(ctx with { Duplicates = dup }));
+    }
+
+    [Fact]
+    public void Mixed_folder_takes_highest_risk_of_its_content_not_the_majority()
+    {
+        // Falso «riesgo bajo» detectado al revisar el reporte: la mayoría era caché, pero contenía documentos.
+        var s = Scan(Tree((@"Users\demo\Mix\app\node_modules", new FF("x", 900 * MiB)), (@"Users\demo\Mix\app", new FF("package.json")), (@"Users\demo\Mix\docs", new FF("tesis.docx", 100 * MiB)))).Context.Storage;
+        var mix = s.TopFolders.Single(f => f.Path.EndsWith("Mix"));
+        Assert.Equal(RiskLevel.High, mix.Risk);
+        Assert.Contains("Cachés", mix.ContentType);
+    }
+
+    [Fact]
+    public void Virtual_disk_in_appdata_is_critical_at_every_level()
+    {
+        var s = Scan(Tree((@"Users\demo\AppData\Local\Docker\wsl\disk", new FF("docker_data.vhdx", 900 * MiB)), (@"Users\demo\Otros", new FF("x.bin", 100 * MiB)))).Context.Storage;
+        Assert.Equal(RiskLevel.Critical, s.TopFiles.Single(f => f.Path.EndsWith(".vhdx")).Risk);
+        Assert.Equal(RiskLevel.Critical, s.TopFolders.Single(f => f.Path.EndsWith(@"wsl\disk")).Risk);
+        Assert.Equal(RiskLevel.Critical, s.Concentrations.Single(f => f.Path.Contains("Docker")).Risk);
+    }
+
+    [Fact]
+    public void Chain_of_nearly_identical_parents_is_collapsed_in_top_folders()
+    {
+        var s = Scan(Tree((@"a\b\c", new FF("x", 500 * MiB)))).Context.Storage;
+        Assert.Contains(s.TopFolders, f => f.Path.EndsWith(@"a\b\c"));
+        Assert.DoesNotContain(s.TopFolders, f => f.Path.EndsWith(@"a\b") || f.Path == Root);
+    }
+
+    [Fact]
+    public void Generic_folder_takes_its_dominant_content_type()
+    {
+        var s = Scan(Tree((@"Users\demo\Peliculas", new FF("a.mkv", 900 * MiB)), (@"Users\demo\Peliculas", new FF("n.txt", 1)))).Context.Storage;
+        Assert.Contains(s.TopFolders, f => f.Path.EndsWith("Peliculas") && f.Category == StorageCategory.Videos);
     }
 
     [Fact]

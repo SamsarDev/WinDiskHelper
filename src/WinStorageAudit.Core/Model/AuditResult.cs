@@ -27,6 +27,8 @@ public sealed class TreeNode
     public long PhysicalBytes { get; init; }
     public long FileCount { get; init; }
     public StorageCategory Category { get; init; }
+    public RiskLevel Risk { get; init; }
+    public string ContentLabel { get; init; } = "";
     public List<TreeNode> Children { get; init; } = [];
 }
 

@@ -17,9 +17,37 @@ public sealed class DirectoryContext
     public KnownCacheDefinition? Cache { get; init; }
     public bool InsideDevResource { get; init; }
     public bool IsDevResourceRoot { get; init; }
+    public bool SuppressArtifacts { get; init; }
     public ProjectMarkers Markers { get; init; }
     public bool MarkerSatisfied { get; init; }
     public List<TreeNode> ChildNodes { get; } = [];
+
+    /// <summary>Espacio físico por categoría de todo el subárbol; da nombre al contenido de una carpeta genérica.</summary>
+    public long[] CategoryBytes { get; } = new long[Enum.GetValues<StorageCategory>().Length];
+
+    /// <summary>La categoría que ocupa al menos el 60 % del subárbol; si no la hay, el contenido es mixto.</summary>
+    public StorageCategory? DominantFileCategory()
+    {
+        var total = CategoryBytes.Sum();
+        if (total == 0) return null;
+        for (var i = 0; i < CategoryBytes.Length; i++)
+            if (CategoryBytes[i] >= total * 0.6) return (StorageCategory)i;
+        return null;
+    }
+
+    /// <summary>El riesgo de una carpeta es el de su contenido más delicado, no el de su contenido mayoritario.</summary>
+    public RiskLevel HighestContentRisk()
+    {
+        var total = CategoryBytes.Sum();
+        var risk = RiskLevel.Low;
+        for (var i = 0; i < CategoryBytes.Length; i++)
+        {
+            if (CategoryBytes[i] == 0 || CategoryBytes[i] < total * 0.01) continue;
+            var r = FileClassifier.DefaultRisk((StorageCategory)i);
+            if (r > risk) risk = r;
+        }
+        return risk;
+    }
 }
 
 public static class FileClassifier
@@ -64,6 +92,8 @@ public static class FileClassifier
 
     public static StorageCategory ForFile(DirectoryContext ctx, string extension)
     {
+        // Un disco virtual nunca se trata como archivo de aplicación corriente, aunque esté en AppData.
+        if (VirtualDiskExt.Contains(extension) && ctx.Zone != DirectoryZone.System) return StorageCategory.DatabasesAndBackups;
         var dir = ForDirectory(ctx);
         if (dir != StorageCategory.Other) return dir;
         if (ImageExt.Contains(extension)) return StorageCategory.Images;

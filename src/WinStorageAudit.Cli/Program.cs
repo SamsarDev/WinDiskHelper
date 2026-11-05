@@ -45,6 +45,8 @@ catch (InvalidDataException ex)
 
 namespace WinStorageAudit.Cli
 {
+    internal sealed record FindingChoice(Finding? Value);
+
     public sealed class App(AppPaths paths)
     {
         private const string Version = "0.1.0";
@@ -333,13 +335,13 @@ namespace WinStorageAudit.Cli
                 RequireInteractive();
                 while (true)
                 {
-                    var choice = AnsiConsole.Prompt(new SelectionPrompt<Finding?>()
-                        .Title("Seleccione un hallazgo (Esc no disponible: elija «Salir»)")
+                    var choice = AnsiConsole.Prompt(new SelectionPrompt<FindingChoice>()
+                        .Title("Seleccione un hallazgo; para terminar, elija «Salir»")
                         .PageSize(18)
-                        .UseConverter(f => f == null ? "Salir" : Markup.Escape($"{PathUtil.FormatBytes(f.EstimatedReclaimableBytes),10}  {f.RiskLevel.Es(),-8}  {f.Recommendation.Es()}: {f.PathOrResource}"))
-                        .AddChoices([null, .. list]));
-                    if (choice == null) return 0;
-                    Views.FindingDetail(choice);
+                        .UseConverter(c => c.Value is not { } f ? "Salir" : Markup.Escape($"{PathUtil.FormatBytes(f.EstimatedReclaimableBytes),10}  {f.RiskLevel.Es(),-8}  {f.Recommendation.Es()}: {f.PathOrResource}"))
+                        .AddChoices([new FindingChoice(null), .. list.Select(f => new FindingChoice(f))]));
+                    if (choice.Value == null) return 0;
+                    Views.FindingDetail(choice.Value);
                 }
             }
 
@@ -431,7 +433,7 @@ namespace WinStorageAudit.Cli
                 var pick = AnsiConsole.Prompt(new SelectionPrompt<TreeNode>()
                     .Title("Carpetas (físico · archivos · categoría). Solo se conservan las de 10 MiB o más.")
                     .PageSize(20)
-                    .UseConverter(n => ReferenceEquals(n, exit) || ReferenceEquals(n, up) ? n.Name : Markup.Escape($"{PathUtil.FormatBytes(n.PhysicalBytes),10}  {n.FileCount,10:N0}  {n.Category.Es(),-24} {n.FullPath}"))
+                    .UseConverter(n => ReferenceEquals(n, exit) || ReferenceEquals(n, up) ? n.Name : Markup.Escape($"{PathUtil.FormatBytes(n.PhysicalBytes),10}  {n.FileCount,10:N0}  {n.ContentLabel,-24} {n.FullPath}"))
                     .AddChoices(choices));
                 if (ReferenceEquals(pick, exit)) return 0;
                 if (ReferenceEquals(pick, up))

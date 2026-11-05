@@ -124,6 +124,8 @@ public sealed class KnownCacheCatalog
                 "yarn cache clean", offline),
             new KnownCacheDefinition("pip-cache", "pip", Path.Combine(loc.LocalAppData, "pip", "Cache"), ["http", "http-v2", "wheels"], ResourceKind.RegenerableCache, Reversibility.Redownloadable, Confidence.High, RiskLevel.Low,
                 "pip cache purge", offline),
+            new KnownCacheDefinition("uv-cache", "uv", Path.Combine(loc.LocalAppData, "uv", "cache"), [], ResourceKind.RegenerableCache, Reversibility.Redownloadable, Confidence.Medium, RiskLevel.Low,
+                "uv cache clean", offline),
             new KnownCacheDefinition("gradle-caches", "Gradle", Path.Combine(loc.UserProfile, ".gradle", "caches"), ["modules-2"], ResourceKind.DownloadedDependency, Reversibility.Redownloadable, Confidence.Medium, RiskLevel.Low,
                 "Detener con «gradle --stop» y revisar la documentación de Gradle antes de borrar", offline),
             new KnownCacheDefinition("maven-repository", "Maven", Path.Combine(loc.UserProfile, ".m2", "repository"), [], ResourceKind.DownloadedDependency, Reversibility.RecoverableWithEffort, Confidence.Medium, RiskLevel.Moderate,

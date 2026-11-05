@@ -32,7 +32,7 @@ nav a { padding: 11px 10px; color: var(--ink-2); text-decoration: none; white-sp
 nav a:hover, nav a:focus-visible { color: var(--ink); border-bottom-color: var(--accent); }
 main { max-width: 1240px; margin: 0 auto; padding: 0 24px 64px; }
 section { margin-top: 36px; }
-.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-top: 12px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr)); gap: 12px; margin-top: 12px; }
 .tile { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; }
 .tile b { display: block; font-size: 24px; font-weight: 650; line-height: 1.2; font-variant-numeric: tabular-nums; }
 .tile span { font-size: 13px; color: var(--ink-2); display: block; margin-top: 4px; }
@@ -42,6 +42,7 @@ section { margin-top: 36px; }
 .bars { display: grid; gap: 7px; }
 .bar-row { display: grid; grid-template-columns: minmax(120px, 2fr) 3fr minmax(84px, auto); gap: 10px; align-items: center; font-size: 14px; padding: 1px 0; }
 .bar-row:hover { background: var(--track); }
+.bar-row > * { min-width: 0; }
 .bar-row .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bar-row .value { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-2); }
 .track { height: 10px; border-radius: 0 4px 4px 0; }
@@ -71,19 +72,22 @@ tr.detail td { background: var(--bg); font-size: 14px; padding: 12px 16px; }
 .chip.r-crit { background: var(--crit-bg); color: var(--crit); }
 .filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
 select, input[type=search] { font: inherit; font-size: 14px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; }
-input[type=search] { min-width: 220px; }
+input[type=search] { flex: 1 1 200px; min-width: 0; max-width: 360px; }
+select { max-width: 100%; }
 button { font: inherit; font-size: 13px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
 button:disabled { opacity: .45; cursor: default; }
 .pager { display: flex; gap: 8px; align-items: center; padding: 8px 10px; font-size: 13px; color: var(--ink-2); border-top: 1px solid var(--line); }
 pre { margin: 6px 0; padding: 8px 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; overflow-x: auto; font: 13px/1.5 Consolas, ui-monospace, monospace; white-space: pre-wrap; word-break: break-word; }
-.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 16px; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(360px, 100%), 1fr)); gap: 16px; }
+.tile, .card, .grid2 > *, section, main > * { min-width: 0; }
+.card, .banner, #subtitle { overflow-wrap: anywhere; }
 .advanced { border-color: var(--crit); }
 a { color: var(--accent); }
 @media (max-width: 640px) {
   header.top, main { padding-left: 16px; padding-right: 16px; }
   .grid2 { grid-template-columns: 1fr; }
   .explain { grid-template-columns: 1fr; }
-  .bar-row { grid-template-columns: 1fr auto; }
+  .bar-row { grid-template-columns: minmax(0, 1fr) auto; }
   .bar-row .track { grid-column: 1 / -1; grid-row: 2; }
 }
 @media print { nav { display: none; } .pager, .filters { display: none; } }
@@ -133,13 +137,16 @@ const dateTime = s => s ? new Date(s).toLocaleString("es") : "—";
 const riskClass = { "Bajo": "r-low", "Moderado": "r-mod", "Alto": "r-high", "Crítico": "r-crit" };
 const chip = t => h("span", { class: "chip " + (riskClass[t] || "") }, t);
 
+// Las rutas comparten prefijo: lo que distingue una de otra es su final.
+function tail(path, max = 52) { return path.length > max ? "…" + path.slice(-(max - 1)) : path; }
+
 function tile(value, label) { return h("div", { class: "tile" }, h("b", {}, value), h("span", {}, label)); }
 
-function bars(rows, labelOf, valueOf) {
+function bars(rows, labelOf, valueOf, fullOf = labelOf) {
   const max = Math.max(1, ...rows.map(valueOf));
   return h("div", { class: "bars" }, rows.map(r => {
     const label = labelOf(r), value = valueOf(r);
-    return h("div", { class: "bar-row", title: label + ": " + bytes(value) },
+    return h("div", { class: "bar-row", title: fullOf(r) + ": " + bytes(value) },
       h("div", { class: "label" }, label),
       h("div", { class: "track" }, h("div", { class: "fill", style: "width:" + (value / max * 100).toFixed(2) + "%" })),
       h("div", { class: "value" }, bytes(value)));
@@ -266,7 +273,7 @@ function summary() {
       v.map(x => h("p", {}, x.root, " ", x.label ? "(" + x.label + ") " : "", x.fileSystem || "", ": capacidad ", bytes(x.total), ", disponible ", bytes(x.free))),
       D.storage.logical !== D.reclaim.occupied && h("p", { class: "muted small" }, "Tamaño lógico: ", bytes(D.storage.logical), ". Solo en la nube, sin leer: ", bytes(D.storage.onlineOnly), ". Rutas repetidas de enlaces duros: ", bytes(D.storage.repeatedLinks), ".")),
     D.storage.topFolders.length > 0 && h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, "Principales consumidores"),
-      bars(D.storage.concentrations.length ? D.storage.concentrations.slice(0, 8) : D.storage.topFolders.slice(0, 8), r => r.path, r => r.physical)),
+      bars(D.storage.concentrations.length ? D.storage.concentrations.slice(0, 8) : D.storage.topFolders.slice(0, 8), r => tail(r.path), r => r.physical, r => r.path)),
     h("div", { class: "banner" }, D.privacyNote));
 }
 

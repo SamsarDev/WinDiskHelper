@@ -141,8 +141,8 @@ public static class ReclaimCalculator
         var order = findings
             .Select((f, i) => (Finding: f, Index: i))
             .Where(x => x.Finding.Recommendation is RecommendationClass.CleanupCandidate or RecommendationClass.ManualReview)
-            .OrderBy(x => x.Finding.Category == FindingArea.Duplicates ? 1 : 0)
-            .ThenBy(x => x.Finding.Recommendation == RecommendationClass.CleanupCandidate ? 0 : 1)
+            .OrderBy(x => x.Finding.Recommendation == RecommendationClass.CleanupCandidate ? 0 : 1)
+            .ThenBy(x => x.Finding.Category == FindingArea.Duplicates ? 1 : 0)
             .ThenBy(x => x.Finding.PathOrResource.Length)
             .ToList();
 
@@ -152,9 +152,12 @@ public static class ReclaimCalculator
             if (finding.Category == FindingArea.Duplicates && finding.RelatedPaths.Count > 1)
             {
                 // Una copia dentro de una carpeta ya contada no suma; siempre debe conservarse una copia en total.
-                var outside = finding.RelatedPaths.Count(p => !IsCovered(p, counted));
+                var outside = finding.RelatedPaths.Where(p => !IsCovered(p, counted)).OrderBy(p => p.Length).ToList();
                 var size = finding.EstimatedReclaimableBytes / Math.Max(1, finding.RelatedPaths.Count - 1);
-                value = size * Math.Max(0, outside - 1);
+                value = size * Math.Max(0, outside.Count - 1);
+
+                // La copia conservada (la de ruta más corta) sigue disponible; las demás ya no pueden sumar en otro hallazgo.
+                foreach (var removable in outside.Skip(1)) counted.Add(removable);
             }
             else if (finding.IsAggregate)
             {

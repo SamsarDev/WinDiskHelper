@@ -77,7 +77,7 @@ public sealed class PersonalBackupRule : IRule
             {
                 RuleId = Id + ":" + g.Kind,
                 Category = FindingArea.PersonalBackup,
-                PathOrResource = $"({g.Kind.Es()}: {g.FileCount:N0} archivos)",
+                PathOrResource = $"({g.Kind.Es()}: {g.FileCount:N0} archivo(s))",
                 IsAggregate = true,
                 RelatedPaths = g.TopFolders,
                 Description = $"{g.Kind.Es()} sin copia verificada en los destinos configurados.",

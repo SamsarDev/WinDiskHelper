@@ -52,7 +52,7 @@ public sealed class ScanCollector : IScanObserver
     private readonly Dictionary<string, DirectoryZone> _zoneRoots = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _appDataParents = new(StringComparer.OrdinalIgnoreCase);
     private readonly PriorityQueue<RetainedFile, long> _topFiles = new();
-    private readonly PriorityQueue<(string Path, DirectoryTotals Totals, StorageCategory Cat, string? Evidence), long> _topFolders = new();
+    private readonly PriorityQueue<(string Path, DirectoryTotals Totals, StorageCategory Cat, string Label, RiskLevel Risk, string? Evidence), long> _topFolders = new();
     private readonly Dictionary<string, Bucket> _byExtension = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<StorageCategory, Bucket> _byCategory = [];
     private readonly List<TreeNode> _rootNodes = [];
@@ -116,7 +116,7 @@ public sealed class ScanCollector : IScanObserver
     {
         var zone = ZoneFor(s.FullPath, parent);
         var inGit = parent?.InGitInternals == true || s.Name.Equals(".git", StringComparison.OrdinalIgnoreCase);
-        var repo = parent?.RepoRoot;
+        var repo = parent == null ? FindEnclosingRepository(s.FullPath) : parent.RepoRoot;
         var insideDev = parent?.InsideDevResource == true;
         DevArtifactKind? artifact = null;
         KnownCacheDefinition? cache = null;
@@ -131,15 +131,18 @@ public sealed class ScanCollector : IScanObserver
                 satisfied = cache.Markers.Length == 0 || cache.Markers.Any(s.HasSubdirectory);
                 isDevRoot = true;
             }
-            else if (zone is DirectoryZone.Normal or DirectoryZone.Downloads)
+            else if (zone is DirectoryZone.Normal or DirectoryZone.Downloads && parent?.SuppressArtifacts != true)
             {
                 artifact = DevArtifactCatalog.Detect(s.Name, parent?.Markers ?? ProjectMarkers.None, s);
                 if (artifact != null) { isDevRoot = true; satisfied = true; }
             }
         }
 
+        // Lo instalado por herramientas no es un proyecto: el «dist» de una extensión o paquete es su código en uso.
+        var suppress = parent?.SuppressArtifacts == true || (artifact == null && IsToolManaged(s, parent));
+
         var gitDirExists = s.HasSubdirectory(".git");
-        var gitFileExists = !gitDirExists && s.HasFile(".git");
+        var gitFileExists = !gitDirExists && !inGit && !insideDev && !isDevRoot && HasValidGitFile(s);
         var bare = !gitDirExists && !gitFileExists && !inGit && s.Name.EndsWith(".git", StringComparison.OrdinalIgnoreCase)
             && s.HasFile("HEAD") && s.HasFile("config") && s.HasSubdirectory("objects") && s.HasSubdirectory("refs");
         var isRepoRoot = !inGit && !insideDev && !isDevRoot && (gitDirExists || gitFileExists || bare);
@@ -157,9 +160,54 @@ public sealed class ScanCollector : IScanObserver
             Cache = cache ?? parent?.Cache,
             InsideDevResource = insideDev || isDevRoot,
             IsDevResourceRoot = isDevRoot,
+            SuppressArtifacts = suppress,
             MarkerSatisfied = satisfied,
             Markers = inGit ? ProjectMarkers.None : MarkerDetector.Detect(s.Files),
         };
+    }
+
+    /// <summary>
+    /// Un archivo .git de un worktree o submódulo empieza por «gitdir:». Otras herramientas (la caché de uv)
+    /// dejan un .git vacío como marcador. Solo se leen los primeros bytes de este archivo de metadatos.
+    /// </summary>
+    private static bool HasValidGitFile(DirectorySnapshot s)
+    {
+        var file = s.Files.FirstOrDefault(f => f.Name.Equals(".git", StringComparison.OrdinalIgnoreCase));
+        if (file == null || file.LogicalBytes == 0 || file.IsOnlineOnly) return false;
+        try
+        {
+            using var stream = new FileStream(Path.Combine(s.FullPath, ".git"), FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            Span<byte> head = stackalloc byte[7];
+            return stream.Read(head) == 7 && head.SequenceEqual("gitdir:"u8);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return true; // Si no se puede leer, se informará como repositorio no verificable.
+        }
+    }
+
+    /// <summary>Una raíz de análisis puede estar dentro de un repositorio: sus artefactos también se comprueban con Git.</summary>
+    private static string? FindEnclosingRepository(string path)
+    {
+        foreach (var ancestor in PathUtil.Ancestors(path))
+        {
+            var marker = Path.Combine(ancestor, ".git");
+            if (Directory.Exists(marker) || File.Exists(marker)) return ancestor;
+        }
+        return null;
+    }
+
+    private bool IsToolManaged(DirectorySnapshot s, DirectoryContext? parent)
+    {
+        if (s.Name.Equals("node_modules", StringComparison.OrdinalIgnoreCase) || s.Name.Equals("site-packages", StringComparison.OrdinalIgnoreCase)
+            || s.Name.Equals(".pnpm", StringComparison.OrdinalIgnoreCase) || s.Name.Equals("extensions", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        // Carpetas ocultas del perfil (.vscode, .cursor, .claude…): pertenecen a herramientas, no a proyectos del usuario.
+        var parentPath = parent?.Path ?? Path.GetDirectoryName(s.FullPath);
+        return s.Name.StartsWith('.') && parentPath != null && parentPath.Equals(_loc.UserProfile.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase);
     }
 
     public void ExitDirectory(DirectorySnapshot s, DirectoryContext ctx, DirectoryTotals totals)
@@ -178,6 +226,7 @@ public sealed class ScanCollector : IScanObserver
             var ext = Path.GetExtension(f.Name);
             var category = FileClassifier.ForFile(ctx, ext);
             AddBucket(_byCategory, category, f);
+            ctx.CategoryBytes[(int)category] += f.PhysicalBytes;
             var extKey = ext.Length == 0 ? "(sin extensión)" : ext.ToLowerInvariant();
             if (_byExtension.Count < _limits.MaxExtensions || _byExtension.ContainsKey(extKey))
                 AddToBucket(GetOrAdd(_byExtension, extKey), f);
@@ -276,8 +325,9 @@ public sealed class ScanCollector : IScanObserver
 
         if (ctx.RepoRoot == s.FullPath)
         {
-            var bare = !s.HasSubdirectory(".git") && !s.HasFile(".git");
-            Repositories.Add(new RepoCandidate(s.FullPath, bare, s.HasFile(".git"), ctx.Parent?.RepoRoot, totals));
+            var hasGitDir = s.HasSubdirectory(".git");
+            var hasGitFile = !hasGitDir && s.HasFile(".git") && HasValidGitFile(s);
+            Repositories.Add(new RepoCandidate(s.FullPath, !hasGitDir && !hasGitFile, hasGitFile, ctx.Parent?.RepoRoot, totals));
         }
 
         var parentPath = ctx.Parent?.Path ?? Path.GetDirectoryName(s.FullPath);
@@ -297,9 +347,15 @@ public sealed class ScanCollector : IScanObserver
             NamedTempDirectories.Add(new DirectoryCandidate(s.FullPath, totals));
         }
 
-        if (ctx.Parent != null || totals.PhysicalBytes > 0) OfferTopFolder(s, ctx, totals);
+        var category = ResolveFolderCategory(ctx, out var label);
+        var risk = ctx.HighestContentRisk();
+        if (ctx.Parent != null)
+        {
+            for (var i = 0; i < ctx.CategoryBytes.Length; i++) ctx.Parent.CategoryBytes[i] += ctx.CategoryBytes[i];
+        }
 
-        var category = FileClassifier.ForDirectory(ctx);
+        if (ctx.Parent != null || totals.PhysicalBytes > 0) OfferTopFolder(s, ctx, totals, category, label, risk);
+
         if (ctx.Depth <= _limits.MaxTreeDepth && (totals.PhysicalBytes >= _limits.MinTreeNodeBytes || ctx.Parent == null))
         {
             var node = new TreeNode
@@ -310,6 +366,8 @@ public sealed class ScanCollector : IScanObserver
                 PhysicalBytes = totals.PhysicalBytes,
                 FileCount = totals.FileCount,
                 Category = category,
+                Risk = risk,
+                ContentLabel = label,
                 Children = [.. ctx.ChildNodes.OrderByDescending(n => n.PhysicalBytes)],
             };
             if (ctx.Parent != null) ctx.Parent.ChildNodes.Add(node);
@@ -330,12 +388,25 @@ public sealed class ScanCollector : IScanObserver
         else if (_topFiles.TryPeek(out _, out var min) && f.PhysicalBytes > min) _topFiles.EnqueueDequeue(retained.Value, f.PhysicalBytes);
     }
 
-    private void OfferTopFolder(DirectorySnapshot s, DirectoryContext ctx, DirectoryTotals totals)
+    private static StorageCategory ResolveFolderCategory(DirectoryContext ctx, out string label)
+    {
+        var byLocation = FileClassifier.ForDirectory(ctx);
+        if (byLocation != StorageCategory.Other)
+        {
+            label = byLocation.Es();
+            return byLocation;
+        }
+        var dominant = ctx.DominantFileCategory();
+        label = dominant?.Es() ?? "Contenido mixto";
+        return dominant ?? StorageCategory.Other;
+    }
+
+    private void OfferTopFolder(DirectorySnapshot s, DirectoryContext ctx, DirectoryTotals totals, StorageCategory category, string label, RiskLevel risk)
     {
         string? evidence = ctx.IsDevResourceRoot
             ? ctx.Artifact?.MarkerEvidence ?? (ctx.Cache != null ? "ubicación conocida de " + ctx.Cache.Tool : null)
             : ctx.RepoRoot == s.FullPath ? "repositorio Git" : null;
-        var item = (s.FullPath, totals, FileClassifier.ForDirectory(ctx), evidence);
+        var item = (s.FullPath, totals, category, label, risk, evidence);
         if (_topFolders.Count < _limits.TopFolders) _topFolders.Enqueue(item, totals.PhysicalBytes);
         else if (_topFolders.TryPeek(out _, out var min) && totals.PhysicalBytes > min) _topFolders.EnqueueDequeue(item, totals.PhysicalBytes);
     }
@@ -364,15 +435,25 @@ public sealed class ScanCollector : IScanObserver
         lock (_lock)
         {
             double analyzed = Math.Max(1, _grand.PhysicalBytes);
-            var folders = _topFolders.UnorderedItems.OrderByDescending(i => i.Priority).Select(i => i.Element).Select(e => new StorageItem
+            // Una cadena de carpetas casi idénticas (C:\Users\yo\...) no aporta información: se conserva el nivel más profundo.
+            var entries = _topFolders.UnorderedItems.Select(i => i.Element).ToList();
+            var redundantParents = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var folderBytes = entries.GroupBy(e => e.Path, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.First().Totals.PhysicalBytes, StringComparer.OrdinalIgnoreCase);
+            foreach (var e in entries)
+            {
+                var parent = Path.GetDirectoryName(e.Path);
+                if (parent != null && folderBytes.TryGetValue(parent, out var parentBytes) && e.Totals.PhysicalBytes >= parentBytes * 0.98) redundantParents.Add(parent);
+            }
+
+            var folders = entries.Where(e => !redundantParents.Contains(e.Path)).OrderByDescending(e => e.Totals.PhysicalBytes).Select(e => new StorageItem
             {
                 Path = e.Path,
                 LogicalBytes = e.Totals.LogicalBytes,
                 PhysicalBytes = e.Totals.PhysicalBytes,
                 PercentOfAnalyzed = e.Totals.PhysicalBytes / analyzed * 100,
-                ContentType = "Carpeta · " + e.Cat.Es(),
+                ContentType = "Carpeta · " + e.Label,
                 Category = e.Cat,
-                Risk = FileClassifier.DefaultRisk(e.Cat),
+                Risk = e.Risk,
                 Evidence = BuildFolderEvidence(e.Totals, e.Evidence),
                 LastWriteUtc = e.Totals.NewestWriteUtc,
             }).ToList();
@@ -423,6 +504,7 @@ public sealed class ScanCollector : IScanObserver
         {
             return FileClassifier.IsVirtualDisk(ext) ? StorageCategory.DatabasesAndBackups : StorageCategory.Applications;
         }
+        if (FileClassifier.IsVirtualDisk(ext)) return StorageCategory.DatabasesAndBackups;
         if (PathUtil.IsSameOrUnder(path, _loc.Downloads)) return StorageCategory.Downloads;
         var pseudo = new DirectoryContext { Path = path, Depth = 0 };
         return FileClassifier.ForFile(pseudo, ext);
@@ -449,26 +531,27 @@ public sealed class ScanCollector : IScanObserver
     /// <summary>Baja por el árbol mientras un hijo domine; el nodo final es donde realmente se concentra el espacio.</summary>
     private List<StorageItem> FindConcentrations(double analyzed)
     {
+        var minimum = analyzed * 0.02;
         var results = new List<StorageItem>();
         void Visit(TreeNode n)
         {
-            var dominant = n.Children.FirstOrDefault(c => c.PhysicalBytes >= n.PhysicalBytes * 0.6);
-            if (dominant != null) { Visit(dominant); return; }
-            if (n.PhysicalBytes >= analyzed * 0.03 && n.Children.Count > 0 || n.PhysicalBytes >= analyzed * 0.05)
+            var significant = n.Children.Where(c => c.PhysicalBytes >= minimum).ToList();
+            foreach (var c in significant) Visit(c);
+
+            // Una carpeta es concentración si, tras quitar sus hijos relevantes, aún queda volumen propio.
+            var remainder = n.PhysicalBytes - significant.Sum(c => c.PhysicalBytes);
+            if (remainder < minimum || remainder < n.PhysicalBytes * 0.5) return;
+            results.Add(new StorageItem
             {
-                results.Add(new StorageItem
-                {
-                    Path = n.FullPath,
-                    LogicalBytes = n.LogicalBytes,
-                    PhysicalBytes = n.PhysicalBytes,
-                    PercentOfAnalyzed = n.PhysicalBytes / analyzed * 100,
-                    ContentType = "Concentración · " + n.Category.Es(),
-                    Category = n.Category,
-                    Risk = FileClassifier.DefaultRisk(n.Category),
-                    Evidence = [$"{n.FileCount:N0} archivos; ningún subdirectorio supera el 60 % de esta carpeta"],
-                });
-            }
-            foreach (var c in n.Children) Visit(c);
+                Path = n.FullPath,
+                LogicalBytes = n.LogicalBytes,
+                PhysicalBytes = n.PhysicalBytes,
+                PercentOfAnalyzed = n.PhysicalBytes / analyzed * 100,
+                ContentType = "Concentración · " + n.ContentLabel,
+                Category = n.Category,
+                Risk = n.Risk,
+                Evidence = [$"{n.FileCount:N0} archivos; {PathUtil.FormatBytes((long)remainder)} no pertenecen a una subcarpeta destacada"],
+            });
         }
         foreach (var r in _rootNodes) Visit(r);
         return [.. results.OrderByDescending(r => r.PhysicalBytes).Take(25)];

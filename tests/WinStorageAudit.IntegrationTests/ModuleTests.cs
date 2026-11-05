@@ -202,6 +202,35 @@ public class GitTests
     }
 
     [Fact]
+    public async Task Artifact_in_subfolder_scan_is_linked_to_enclosing_repository()
+    {
+        using var g = new GitFixture();
+        var repo = g.Repo("sub");
+        Directory.CreateDirectory(Path.Combine(repo, "src", "bin"));
+        File.WriteAllText(Path.Combine(repo, "src", "a.csproj"), "x");
+        File.WriteAllText(Path.Combine(repo, "src", "bin", "a.dll"), "x");
+
+        var (c, _, _) = await Scan.RunAsync(Path.Combine(repo, "src"));
+
+        Assert.Equal(repo, c.DevResources.Single().RepoRoot);
+        Assert.Empty(c.Repositories); // El repositorio exterior no forma parte de lo analizado.
+    }
+
+    [Fact]
+    public async Task Empty_git_marker_file_is_not_a_repository()
+    {
+        // Caso real: la caché de uv deja un archivo .git vacío.
+        using var t = new TempTree();
+        t.File(@"cache\sdists\.git", 0);
+        t.File(@"weird\.git", 20);
+        t.File(@"cache\sdists\x.bin", 10);
+
+        var (c, _, _) = await Scan.RunAsync(t.Root);
+
+        Assert.Empty(c.Repositories);
+    }
+
+    [Fact]
     public async Task Nested_repositories_and_submodules_are_discovered()
     {
         using var g = new GitFixture();
