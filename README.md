@@ -64,6 +64,8 @@ winstorageaudit report --open
 
 Sin argumentos, `scan` analiza el perfil del usuario.
 
+También puede abrir el ejecutable con doble clic: muestra un menú con análisis rápido, análisis profundo, último reporte y ayuda, y no analiza nada hasta que elija una opción. Desde una terminal, sin argumentos, muestra la ayuda. Si un acceso directo lo abre con argumentos, la ventana espera una tecla antes de cerrarse.
+
 ## Comandos
 
 ```bash
@@ -166,7 +168,7 @@ El árbol incluye casos que **no** deben considerarse basura: discos virtuales, 
 - Windows no conserva un historial completo de ejecución. «Sin evidencia» no significa «sin uso».
 - El formato de UserAssist no está documentado oficialmente: los valores que no coinciden con lo esperado se descartan.
 - El tamaño de las aplicaciones procede del registro; puede faltar o estar desactualizado.
-- La interfaz interactiva (`browse`, `--interactive`) no tiene pruebas automatizadas.
+- `browse` y `--interactive` no tienen pruebas automatizadas. Del menú de doble clic se prueban la detección, la selección y la confirmación, pero no el recorrido completo de cada opción.
 
 ## Documentación
 

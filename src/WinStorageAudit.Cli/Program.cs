@@ -28,20 +28,25 @@ Console.CancelKeyPress += (_, e) =>
     AnsiConsole.MarkupLine("[yellow]Cancelando; se conservarán los resultados parciales…[/]");
 };
 
+int exitCode;
 try
 {
-    return await new App(AppPaths.Default()).RunAsync(args, cancellation.Token);
+    exitCode = await new App(AppPaths.Default()).RunAsync(args, cancellation.Token);
 }
 catch (UsageException ex)
 {
     AnsiConsole.MarkupLine($"[red]{Markup.Escape(ex.Message)}[/]");
-    return 2;
+    exitCode = 2;
 }
 catch (InvalidDataException ex)
 {
     AnsiConsole.MarkupLine($"[red]{Markup.Escape(ex.Message)}[/]");
-    return 1;
+    exitCode = 1;
 }
+
+// Con argumentos en una ventana propia (por ejemplo, un acceso directo), el resultado debe poder leerse.
+if (args.Length > 0 && Launcher.OwnsConsole()) Launcher.WaitForKey();
+return exitCode;
 
 namespace WinStorageAudit.Cli
 {
@@ -54,8 +59,61 @@ namespace WinStorageAudit.Cli
         private readonly ResultStore _results = new(paths);
         private readonly HistoryStore _history = new(paths);
 
+        private async Task<int> RunLauncherAsync(CancellationToken ct)
+        {
+            AnsiConsole.MarkupLine("[bold]WinStorageAudit[/]: auditoría de almacenamiento para Windows. Solo lectura.");
+            AnsiConsole.WriteLine();
+
+            try
+            {
+                while (true)
+                {
+                    var action = await Launcher.AskAsync(AnsiConsole.Console, File.Exists(paths.LastResultFile), ct);
+                    string[]? command = null;
+                    switch (action)
+                    {
+                        case LauncherAction.Exit:
+                            return 0;
+                        case LauncherAction.Help:
+                            PrintGeneralHelp();
+                            AnsiConsole.WriteLine();
+                            continue;
+                        case LauncherAction.QuickScan:
+                            command = ["scan", "--quick"];
+                            break;
+                        case LauncherAction.DeepScan:
+                            AnsiConsole.MarkupLine("El análisis profundo puede tardar bastante: lee el contenido de posibles duplicados para compararlos, lo que puede actualizar su fecha de último acceso.");
+                            if (await Launcher.ConfirmAsync(AnsiConsole.Console, "¿Continuar?", ct)) command = ["scan", "--deep"];
+                            break;
+                        case LauncherAction.OpenReport:
+                            command = ["report", "--format", "html", "--open", "--force"];
+                            break;
+                    }
+
+                    if (command == null) continue;
+                    try
+                    {
+                        await RunAsync(command, ct);
+                    }
+                    catch (Exception ex) when (ex is UsageException or InvalidDataException)
+                    {
+                        AnsiConsole.MarkupLine($"[red]{Markup.Escape(ex.Message)}[/]");
+                    }
+
+                    if (ct.IsCancellationRequested) return 130;
+                    AnsiConsole.WriteLine();
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                return 130; // Ctrl+C mientras se esperaba una elección.
+            }
+        }
+
         public async Task<int> RunAsync(string[] args, CancellationToken ct)
         {
+            if (args.Length == 0 && Launcher.OwnsConsole()) return await RunLauncherAsync(ct);
+
             if (args.Length == 0 || args[0] is "-h" or "--help" or "help" or "/?")
             {
                 if (args.Length > 1 && Commands.All.FirstOrDefault(c => c.Name == args[1]) is { } target) PrintHelp(target);
@@ -537,7 +595,7 @@ namespace WinStorageAudit.Cli
         {
             if (args.Has("yes")) return true;
             if (Console.IsInputRedirected) throw new UsageException("Sin terminal interactiva, use --yes para confirmar.");
-            return AnsiConsole.Confirm(Markup.Escape(question), false);
+            return Launcher.ConfirmAsync(AnsiConsole.Console, question, CancellationToken.None).GetAwaiter().GetResult();
         }
 
         private int Config(ParsedArgs args)
